@@ -358,6 +358,7 @@
     }
 
     .game-row {
+      width:100%;
       display:grid;
       grid-template-columns:1fr auto;
       gap:6px 12px;
@@ -366,6 +367,104 @@
       border:1.5px solid rgba(56,54,43,.25);
       border-radius:11px;
       background:rgba(255,250,240,.72);
+      color:inherit;
+      font:inherit;
+      text-align:left;
+      cursor:pointer;
+    }
+
+    .game-row:active {
+      transform:translateY(1px);
+      background:rgba(255,250,240,.92);
+    }
+
+    .game-row::after {
+      content:"›";
+      grid-column:2;
+      grid-row:1 / span 2;
+      align-self:center;
+      font-size:28px;
+      font-weight:900;
+      color:#6d6047;
+      margin-left:4px;
+    }
+
+    .game-row .game-score {
+      grid-column:2;
+      padding-right:24px;
+    }
+
+    .saved-game-view {
+      display:none;
+      width:min(100%, 540px);
+      max-height:calc(100svh - 24px);
+      overflow:auto;
+      background:#efe0b8;
+      border:2px solid rgba(63, 58, 43, .55);
+      border-radius:18px;
+      box-shadow:0 18px 50px rgba(0,0,0,.35);
+    }
+
+    .saved-game-view.open { display:block; }
+
+    .saved-game-header {
+      position:sticky;
+      top:0;
+      z-index:3;
+      display:grid;
+      grid-template-columns:42px 1fr 42px;
+      align-items:center;
+      gap:8px;
+      padding:12px 12px 10px;
+      background:#e2c979;
+      border-bottom:2px solid rgba(63,58,43,.35);
+    }
+
+    .saved-game-title {
+      margin:0;
+      text-align:center;
+      font-size:19px;
+      letter-spacing:.04em;
+      text-transform:uppercase;
+    }
+
+    .saved-game-back,
+    .saved-game-close {
+      width:42px;
+      height:42px;
+      border:1.5px solid rgba(45,42,34,.4);
+      border-radius:50%;
+      background:#fff8e6;
+      color:#30291f;
+      font-size:24px;
+      font-weight:900;
+      line-height:1;
+      cursor:pointer;
+    }
+
+    .saved-game-meta {
+      padding:11px 14px 4px;
+      text-align:center;
+      font-size:13px;
+      font-weight:750;
+      color:#5d5547;
+    }
+
+    .saved-score-grid {
+      margin-top:8px;
+      margin-bottom:14px;
+    }
+
+    .saved-value {
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      min-width:0;
+      min-height:72px;
+      background:color-mix(in srgb, var(--row-color) 30%, white);
+      font-size:clamp(23px, 7vw, 34px);
+      font-weight:900;
+      font-variant-numeric:tabular-nums;
     }
 
     .game-result {
@@ -492,7 +591,7 @@
   </main>
 
   <div class="trophy-overlay" id="trophyOverlay" aria-hidden="true">
-    <section class="trophy-room" role="dialog" aria-modal="true" aria-labelledby="trophyTitle">
+    <section class="trophy-room" id="trophyRoomPanel" role="dialog" aria-modal="true" aria-labelledby="trophyTitle">
       <header class="trophy-header">
         <h2 class="trophy-title" id="trophyTitle">Trophy Room</h2>
         <button class="trophy-close" id="trophyCloseBtn" type="button" aria-label="Close Trophy Room">×</button>
@@ -502,6 +601,16 @@
         <h3 class="history-title">Saved Games</h3>
         <div class="game-history" id="gameHistory"></div>
       </div>
+    </section>
+
+    <section class="saved-game-view" id="savedGameView" role="dialog" aria-modal="true" aria-labelledby="savedGameTitle">
+      <header class="saved-game-header">
+        <button class="saved-game-back" id="savedGameBackBtn" type="button" aria-label="Back to Trophy Room">‹</button>
+        <h2 class="saved-game-title" id="savedGameTitle">Saved Game</h2>
+        <button class="saved-game-close" id="savedGameCloseBtn" type="button" aria-label="Close saved game">×</button>
+      </header>
+      <div class="saved-game-meta" id="savedGameMeta"></div>
+      <div id="savedGameScorecard"></div>
     </section>
   </div>
 
@@ -630,17 +739,97 @@
           : "Saved game";
 
         return `
-          <div class="game-row">
+          <button class="game-row" type="button" data-game-id="${game.id}" aria-label="View saved game: ${resultText}, ${PLAYER_NAMES[0]} ${Number(totals[0]) || 0} to ${Number(totals[1]) || 0} ${PLAYER_NAMES[1]}">
             <div class="game-result">${resultText}</div>
             <div class="game-score">${PLAYER_NAMES[0]} ${Number(totals[0]) || 0} – ${Number(totals[1]) || 0} ${PLAYER_NAMES[1]}</div>
             <div class="game-date">${date}</div>
-          </div>
+          </button>
         `;
       }).join("");
     }
 
+    function rowIconMarkup(row) {
+      const icons = [
+        '<div class="square blue" aria-label="Blue"></div>',
+        '<div class="square green" aria-label="Green"></div>',
+        '<div class="square yellow" aria-label="Yellow"></div>',
+        '<div class="square purple" aria-label="Purple"></div>',
+        '<div class="diamond" aria-label="Wonder"><span></span><span></span></div>',
+        '<div class="coin green" aria-label="Green token"></div>',
+        '<div class="coin gold" aria-label="Gold token"></div>',
+        '<div class="military" aria-label="Military"></div>'
+      ];
+      return icons[row] || "";
+    }
+
+    function rowClass(row) {
+      return ["r-blue", "r-green", "r-yellow", "r-purple", "r-wonder", "r-token1", "r-token2", "r-red"][row] || "";
+    }
+
+    function openSavedGame(gameId) {
+      const game = loadTrophyGames().find(item => item && item.id === gameId);
+      if (!game || !Array.isArray(game.scores) || game.scores.length !== ROWS) return;
+
+      const savedScores = game.scores.map(row =>
+        Array.isArray(row) && row.length === 2
+          ? row.map(value => Math.max(0, Number(value) || 0))
+          : [0, 0]
+      );
+      const totals = [0, 1].map(player =>
+        savedScores.reduce((sum, row) => sum + row[player], 0)
+      );
+      const winner = game.winner || winnerFor(totals);
+      const resultText = winner === "Draw" ? "Draw" : `${winner} won`;
+      const dateText = game.savedAt
+        ? new Date(game.savedAt).toLocaleString([], {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+            hour: "numeric",
+            minute: "2-digit"
+          })
+        : "Saved game";
+
+      let rows = "";
+      for (let row = 0; row < ROWS; row++) {
+        const cls = rowClass(row);
+        rows += `
+          <div class="cell icon-cell ${cls}">${rowIconMarkup(row)}</div>
+          <div class="cell saved-value ${cls}">${savedScores[row][0]}</div>
+          <div class="cell saved-value ${cls}">${savedScores[row][1]}</div>
+        `;
+      }
+
+      document.getElementById("savedGameMeta").textContent =
+        `${resultText} • ${dateText}`;
+
+      document.getElementById("savedGameScorecard").innerHTML = `
+        <section class="score-grid saved-score-grid" aria-label="Saved scorecard">
+          <div class="cell head" aria-hidden="true"></div>
+          <div class="cell head">${PLAYER_NAMES[0]}</div>
+          <div class="cell head">${PLAYER_NAMES[1]}</div>
+          ${rows}
+          <div class="cell total-label">Σ</div>
+          <div class="cell total-cell">${totals[0]}</div>
+          <div class="cell total-cell">${totals[1]}</div>
+        </section>
+      `;
+
+      document.getElementById("trophyRoomPanel").style.display = "none";
+      document.getElementById("savedGameView").classList.add("open");
+      document.getElementById("savedGameBackBtn").focus();
+    }
+
+    function closeSavedGameToTrophyRoom() {
+      document.getElementById("savedGameView").classList.remove("open");
+      document.getElementById("trophyRoomPanel").style.display = "";
+      document.getElementById("trophyTitle").focus?.();
+    }
+
     function openTrophyRoom() {
       renderTrophyRoom();
+      document.getElementById("savedGameView").classList.remove("open");
+      document.getElementById("trophyRoomPanel").style.display = "";
       const overlay = document.getElementById("trophyOverlay");
       overlay.classList.add("open");
       overlay.setAttribute("aria-hidden", "false");
@@ -652,6 +841,8 @@
       const overlay = document.getElementById("trophyOverlay");
       overlay.classList.remove("open");
       overlay.setAttribute("aria-hidden", "true");
+      document.getElementById("savedGameView").classList.remove("open");
+      document.getElementById("trophyRoomPanel").style.display = "";
       document.body.style.overflow = "";
       document.getElementById("trophyBtn").focus();
     }
@@ -707,13 +898,23 @@
     document.getElementById("saveGameBtn").addEventListener("click", saveCurrentGame);
     document.getElementById("trophyBtn").addEventListener("click", openTrophyRoom);
     document.getElementById("trophyCloseBtn").addEventListener("click", closeTrophyRoom);
+    document.getElementById("savedGameBackBtn").addEventListener("click", closeSavedGameToTrophyRoom);
+    document.getElementById("savedGameCloseBtn").addEventListener("click", closeSavedGameToTrophyRoom);
+
+    document.getElementById("gameHistory").addEventListener("click", event => {
+      const gameButton = event.target.closest(".game-row[data-game-id]");
+      if (gameButton) openSavedGame(gameButton.dataset.gameId);
+    });
 
     document.getElementById("trophyOverlay").addEventListener("click", event => {
       if (event.target.id === "trophyOverlay") closeTrophyRoom();
     });
 
     document.addEventListener("keydown", event => {
-      if (event.key === "Escape" && document.getElementById("trophyOverlay").classList.contains("open")) {
+      if (event.key !== "Escape" || !document.getElementById("trophyOverlay").classList.contains("open")) return;
+      if (document.getElementById("savedGameView").classList.contains("open")) {
+        closeSavedGameToTrophyRoom();
+      } else {
         closeTrophyRoom();
       }
     });
